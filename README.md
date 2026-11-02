@@ -2,7 +2,7 @@
 
 Hourly PM2.5 readings from a network of 10 sensors in Nairobi, stored in MongoDB and wrangled into a clean, time-indexed pandas series for time series modelling.
 
-**Status:** Lessons 3.1 (data wrangling with MongoDB) and 3.2 (linear regression in time series) complete.
+**Status:** Lessons 3.1 (data wrangling with MongoDB), 3.2 (linear regression in time series), and 3.3 (autoregressive models) complete.
 
 ## What this project does so far
 
@@ -48,6 +48,22 @@ Hourly PM2.5 readings from a network of 10 sensors in Nairobi, stored in MongoDB
 | Linear regression (lag 1) | 7.4591 | 9.2876 | 0.0729 |
 | Multiple-lag regression (lags 1, 2, 3, 7) | 7.3771 | 9.1993 | 0.0904 |
 
+## Results (Lesson 3.3)
+
+- Used ACF and PACF plots to diagnose the autoregressive order. The PACF showed no clean cutoff due to the 10-sensor patchwork, but lag 4 was the first inside the confidence band. We selected **AR(3)** and verified this via AIC/BIC (AR(3) had the lowest BIC).
+- Fitted an AR(3) model using `statsmodels.AutoReg`. The coefficients decayed quickly (`lag_1`: 0.23, `lag_2`: 0.11, `lag_3`: 0.05), confirming weak short-term memory in the series.
+- Walk-forward validation for the first 30 hours of the test set yielded an **MAE of 7.78**, which is **25.33% better** than the persistence baseline (MAE 10.42) on the same 30 steps.
+- The model's predictions appeared "smoothed" and missed sudden spikes. This is expected **mean reversion** behavior for an AR model on noisy sensor data.
+- The PACF showed a significant positive spike at **lag 24** (0.20), indicating a **daily cycle** (likely traffic or temperature inversions). A non-seasonal AR model cannot capture this, so a seasonal model should be investigated in a later lesson.
+
+| Model | MAE (30-step walk-forward) | AIC | BIC |
+|---|---:|---:|---:|
+| Persistence baseline | 10.42 | — | — |
+| AR(1) | 7.92 | 51461.5 | 51482.0 |
+| AR(3) (chosen) | 7.78 | 51320.8 | 51355.1 |
+| AR(5) | 7.82 | 51299.9 | 51347.9 |
+| AR(7) | 7.76 | 51238.5 | 51300.2 |
+
 ## Limitations
 
 - Each hourly value comes from one of the 10 sensors, at a different location, so the combined series is a patchwork of sensors rather than one instrument's record. Differences between sensors appear as noise.
@@ -66,8 +82,9 @@ Hourly PM2.5 readings from a network of 10 sensors in Nairobi, stored in MongoDB
     uv run python src/load_mongo_data.py
     # open notebooks/3.1_data_wrangling_mongodb.ipynb (kernel: nairobi-env)
     # then open notebooks/3.2_linear_regression_lags.ipynb
+    # then open notebooks/3.3_autoregressive_models.ipynb
 
-The MongoDB host defaults to `localhost`; set the `MONGO_HOST` environment variable to use another server. Tested with Python 3.14.2, pandas 3.1.0, pymongo 4.19.0, scikit-learn 1.9.1 and MongoDB 7.
+The MongoDB host defaults to `localhost`; set the `MONGO_HOST` environment variable to use another server. Tested with Python 3.14.2, pandas 3.1.0, pymongo 4.19.0, scikit-learn 1.9.1, statsmodels 0.15.0 and MongoDB 7.
 
 ## Notebooks
 
@@ -75,6 +92,7 @@ The MongoDB host defaults to `localhost`; set the `MONGO_HOST` environment varia
 |---|---|
 | `notebooks/3.1_data_wrangling_mongodb.ipynb` | Connect, explore, import and wrangle PM2.5 data from MongoDB |
 | `notebooks/3.2_linear_regression_lags.ipynb` | Create lag features, train linear regression models and evaluate time series predictions |
+| `notebooks/3.3_autoregressive_models.ipynb` | Use ACF/PACF to select AR order, fit AR models, and run walk-forward validation |
 
 ## Layout
 
