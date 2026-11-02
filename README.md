@@ -2,13 +2,15 @@
 
 Hourly PM2.5 readings from a network of 10 sensors in Nairobi, stored in MongoDB and wrangled into a clean, time-indexed pandas series for time series modelling.
 
-**Status:** Lesson 3.1 (data wrangling with MongoDB) complete. Modelling lessons to follow.
+**Status:** Lessons 3.1 (data wrangling with MongoDB) and 3.2 (linear regression in time series) complete.
 
 ## What this project does so far
 
 - Loads the sensor data into a local MongoDB 7 collection (`air-quality.nairobi`) with a timestamp index.
 - Explores the collection with `pymongo`: document counts, a sample document, distinct sensors and measurement types, and aggregation pipelines.
 - Packages the pipeline as `wrangle_data()`, which returns PM2.5 as a timezone-aware, sorted, hourly DataFrame, optionally for a single sensor.
+- Creates lag features and trains linear regression models to investigate how previous PM2.5 readings relate to the current reading.
+- Evaluates models using a chronological train/test split and compares them with a persistence baseline.
 
 ![Hourly PM2.5, all sensors combined](reports/figures/pm25_hourly_series.png)
 
@@ -31,11 +33,30 @@ Hourly PM2.5 readings from a network of 10 sensors in Nairobi, stored in MongoDB
 - `nairobi_001` alone has 953 readings, with mean PM2.5 of 39.8 (median 39.9, standard deviation 9.8, range 8.0 to 67.4).
 - Stored timestamps are timezone-naive. `wrangle_data()` treats them as UTC and converts them to Africa/Nairobi.
 
+## Results (Lesson 3.2)
+
+- The modelling dataset contains 8,774 observations from 2024 after creating lag features and removing rows with missing lag values.
+- Data was split chronologically: 7,019 training observations (80%) and 1,755 testing observations (20%). The test period runs from 2024-10-19 21:00 to 2024-12-31 23:00 (Africa/Nairobi).
+- A single-lag linear regression model achieved MAE 7.4591, RMSE 9.2876 and R² 0.0729.
+- A multiple-lag model using the previous 1, 2, 3 and 7 hours achieved MAE 7.3771, RMSE 9.1993 and R² 0.0904.
+- Both regression models outperformed the persistence baseline (MAE 9.2636, RMSE 11.6418, R² -0.4567). The multiple-lag model improved only modestly over the single-lag model.
+- The relatively low R² values indicate that these lag features explain only a limited amount of variation in the test data.
+
+| Model | MAE | RMSE | R² |
+|---|---:|---:|---:|
+| Persistence baseline | 9.2636 | 11.6418 | -0.4567 |
+| Linear regression (lag 1) | 7.4591 | 9.2876 | 0.0729 |
+| Multiple-lag regression (lags 1, 2, 3, 7) | 7.3771 | 9.1993 | 0.0904 |
+
 ## Limitations
 
 - Each hourly value comes from one of the 10 sensors, at a different location, so the combined series is a patchwork of sensors rather than one instrument's record. Differences between sensors appear as noise.
 - The data does not state its timezone; assuming UTC is the course's convention.
 - Only PM2.5 is available in this dataset.
+- The combined series switches between sensors. Lag features can therefore compare readings from different sensors, meaning sensor-to-sensor differences may affect the apparent time relationships.
+- The `lag_7` feature represents seven hours earlier, not seven days, because the observations are hourly.
+- The persistence baseline uses the actual previous observation for each test prediction. This is a rolling one-step-ahead evaluation, not a fixed-origin multi-step forecast.
+- The models use only past PM2.5 readings as predictors. Their modest test R² values suggest that additional relevant variables or a different modelling approach may be needed.
 
 ## Reproduce
 
@@ -44,14 +65,16 @@ Hourly PM2.5 readings from a network of 10 sensors in Nairobi, stored in MongoDB
     # place nairobi.parquet (from the course materials) in data/raw/
     uv run python src/load_mongo_data.py
     # open notebooks/3.1_data_wrangling_mongodb.ipynb (kernel: nairobi-env)
+    # then open notebooks/3.2_linear_regression_lags.ipynb
 
-The MongoDB host defaults to `localhost`; set the `MONGO_HOST` environment variable to use another server. Tested with Python 3.14.2, pandas 3.1.0, pymongo 4.19.0 and MongoDB 7.
+The MongoDB host defaults to `localhost`; set the `MONGO_HOST` environment variable to use another server. Tested with Python 3.14.2, pandas 3.1.0, pymongo 4.19.0, scikit-learn 1.9.1 and MongoDB 7.
 
 ## Notebooks
 
 | Notebook | Topic |
 |---|---|
 | `notebooks/3.1_data_wrangling_mongodb.ipynb` | Connect, explore, import and wrangle PM2.5 data from MongoDB |
+| `notebooks/3.2_linear_regression_lags.ipynb` | Create lag features, train linear regression models and evaluate time series predictions |
 
 ## Layout
 
