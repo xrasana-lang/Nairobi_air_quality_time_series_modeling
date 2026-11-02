@@ -2,7 +2,7 @@
 
 Hourly PM2.5 readings from a network of 10 sensors in Nairobi, stored in MongoDB and wrangled into a clean, time-indexed pandas series for time series modelling.
 
-**Status:** Lessons 3.1 (data wrangling with MongoDB), 3.2 (linear regression in time series), and 3.3 (autoregressive models) complete.
+**Status:** Lessons 3.1 (data wrangling with MongoDB), 3.2 (linear regression), 3.3 (autoregressive models), and 3.4 (ARMA models) complete.
 
 ## What this project does so far
 
@@ -64,6 +64,25 @@ Hourly PM2.5 readings from a network of 10 sensors in Nairobi, stored in MongoDB
 | AR(5) | 7.82 | 51299.9 | 51347.9 |
 | AR(7) | 7.76 | 51238.5 | 51300.2 |
 
+## Results (Lesson 3.4 — ARMA)
+
+- Fit ARMA(2,1) via `statsmodels.ARIMA(order=(2,0,1))`. Coefficients: `ar.L1 = 0.4815`, `ar.L2 = 0.0625`, `ma.L1 = -0.2483` (p = 0.003), `const = 39.56`.
+- The **negative MA coefficient** indicates shock mean-reversion: when the model is surprised by a positive error, the next prediction is pulled down. This matches the negative PACF values at lags 5–19 observed in Lesson 3.3.
+- Multi-step ARMA forecast on the full test set achieved **MAE 7.80**, a **15.7% improvement** over the persistence baseline (MAE 9.25). However, **R² = -0.0008** — the model predicts the long-run mean well but does not track hourly variance.
+- **AIC/BIC ranking**: ARMA(2,1) beats AR(1) and MA(1) as expected. But **AR(3) from Lesson 3.3 has a slightly lower AIC (51,320.82) and BIC (51,355.10) than ARMA(2,1) (51,346.56 / 51,380.85)** — a key finding not anticipated by the course.
+- **Diagnosis**: the MA coefficient captures genuine shock structure (p = 0.003), but the 10-sensor patchwork makes forecast errors mostly sensor-switching noise. A third AR lag captures smooth multi-hour structure more effectively than an MA term captures noisy shock decay.
+
+### Final model comparison (actual project results)
+
+| Model | Description | MAE | Notes |
+|---|---|---:|---|
+| Baseline (Persistence) | Tomorrow = today | 9.2548 | Floor to beat |
+| Linear regression (L3.2) | Lags 1, 2, 3, 7 | **7.3771** | 🏆 Best overall MAE |
+| AR(3) (L3.3) | Walk-forward, p=3 | 7.7806 | 30-step window only |
+| ARMA(2,1) (L3.4) | Multi-step, p=2, q=1 | 7.7987 | Full test set; R² ≈ 0 |
+
+**Interpretation**: On this 10-sensor patchwork, the simplest model (linear regression with lag features) achieved the lowest MAE. This is not because ARMA is a worse tool in general — on data with genuine shock structure, ARMA would be expected to win. It is because the sensor patchwork introduces high-frequency noise that acts like fake shocks, which the MA coefficient cannot distinguish from real atmospheric events.
+
 ## Limitations
 
 - Each hourly value comes from one of the 10 sensors, at a different location, so the combined series is a patchwork of sensors rather than one instrument's record. Differences between sensors appear as noise.
@@ -83,6 +102,7 @@ Hourly PM2.5 readings from a network of 10 sensors in Nairobi, stored in MongoDB
     # open notebooks/3.1_data_wrangling_mongodb.ipynb (kernel: nairobi-env)
     # then open notebooks/3.2_linear_regression_lags.ipynb
     # then open notebooks/3.3_autoregressive_models.ipynb
+    # then open notebooks/3.4_arma_models.ipynb
 
 The MongoDB host defaults to `localhost`; set the `MONGO_HOST` environment variable to use another server. Tested with Python 3.14.2, pandas 3.1.0, pymongo 4.19.0, scikit-learn 1.9.1, statsmodels 0.15.0 and MongoDB 7.
 
@@ -93,6 +113,7 @@ The MongoDB host defaults to `localhost`; set the `MONGO_HOST` environment varia
 | `notebooks/3.1_data_wrangling_mongodb.ipynb` | Connect, explore, import and wrangle PM2.5 data from MongoDB |
 | `notebooks/3.2_linear_regression_lags.ipynb` | Create lag features, train linear regression models and evaluate time series predictions |
 | `notebooks/3.3_autoregressive_models.ipynb` | Use ACF/PACF to select AR order, fit AR models, and run walk-forward validation |
+| `notebooks/3.4_arma_models.ipynb` | Fit ARMA(2,1), compare against AR/MA baselines via AIC/BIC |
 
 ## Layout
 
