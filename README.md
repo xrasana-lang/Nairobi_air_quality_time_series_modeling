@@ -111,7 +111,7 @@ You need Python, [uv](https://docs.astral.sh/uv/), Docker, and access to the cou
 uv sync
 
 # Start MongoDB 7 locally
-docker run -d --name nairobi-mongo -p 27017:27017 \\
+docker run -d --name nairobi-mongo -p 27017:27017 \
   -v nairobi-mongo-data:/data/db mongo:7
 
 # Place nairobi.parquet in data/raw/, then load it
