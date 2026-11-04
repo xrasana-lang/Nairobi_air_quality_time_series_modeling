@@ -1,126 +1,134 @@
-# Time Series Modeling of Air Quality in Nairobi
+# Nairobi Air Quality Time-Series Pipeline and Modelling
 
-Hourly PM2.5 readings from a network of 10 sensors in Nairobi, stored in MongoDB and wrangled into a clean, time-indexed pandas series for time series modelling.
+A reproducible Python and MongoDB project that ingests hourly PM2.5 sensor data, creates a clean time-indexed dataset, and evaluates forecasting approaches with chronological validation.
 
-**Status:** Lessons 3.1 (data wrangling with MongoDB), 3.2 (linear regression), 3.3 (autoregressive models), and 3.4 (ARMA models) complete.
+The project uses readings from 10 sensors in Nairobi. It combines database exploration and data wrangling with lag-feature engineering, linear regression, autoregressive models, and ARMA modelling. The results are deliberately reported with their limitations: the models improve on a persistence baseline, but the low R² values show that past PM2.5 readings alone do not explain most hourly variation.
 
-## What this project does so far
+## Why this project matters
 
-- Loads the sensor data into a local MongoDB 7 collection (`air-quality.nairobi`) with a timestamp index.
-- Explores the collection with `pymongo`: document counts, a sample document, distinct sensors and measurement types, and aggregation pipelines.
-- Packages the pipeline as `wrangle_data()`, which returns PM2.5 as a timezone-aware, sorted, hourly DataFrame, optionally for a single sensor.
-- Creates lag features and trains linear regression models to investigate how previous PM2.5 readings relate to the current reading.
-- Evaluates models using a chronological train/test split and compares them with a persistence baseline.
+Air-quality data is time-dependent and operationally messy. A useful workflow must preserve timestamps, handle time zones, support reproducible transformations, and evaluate models in a way that does not use future observations to predict the past.
 
-![Hourly PM2.5, all sensors combined](reports/figures/pm25_hourly_series.png)
+This project treats the database and data-preparation steps as first-class engineering work. The reusable `wrangle_data()` function returns a sorted, timezone-aware pandas DataFrame and can optionally select one sensor. The modelling notebooks then use chronological splits and forecasting baselines rather than random train/test sampling.
 
-## Data
+## Data and architecture
 
-`nairobi.parquet`, provided as part of the course materials. It is not committed to this repository (`data/raw/` is git-ignored).
+The source file, `nairobi.parquet`, is provided as course material and is not committed to the repository.
+
+```mermaid
+flowchart LR
+    RAW["data/raw/nairobi.parquet"] --> LOAD["load_mongo_data.py"]
+    LOAD --> DB[("MongoDB 7<br/>air-quality.nairobi")]
+    DB --> WRANGLE["mongo_wrangle.py<br/>wrangle_data()"]
+    WRANGLE --> FRAME["Timezone-aware hourly<br/>pandas DataFrame"]
+    FRAME --> FEATURES["Lag features and<br/>time-series diagnostics"]
+    FEATURES --> MODELS["Linear regression<br/>AR and ARMA"]
+    MODELS --> EVAL["Chronological evaluation<br/>and baseline comparison"]
+```
+
+The workflow is:
+
+1. Load the Parquet data into a local MongoDB 7 collection with a timestamp index.
+2. Explore document counts, sensors, measurement types, sample documents, and aggregation results with PyMongo.
+3. Use `wrangle_data()` to filter PM2.5, sort timestamps, handle timezone assumptions, and return a modelling-ready DataFrame.
+4. Create lag features and inspect autocorrelation with ACF/PACF diagnostics.
+5. Train models using chronological splits or walk-forward evaluation.
+6. Compare the models with a persistence baseline and document what the metrics do and do not show.
+
+## Dataset summary
 
 | Property | Value |
 |---|---|
 | Documents | 10,000 |
-| Sensors | 10 (`nairobi_001` to `nairobi_010`) |
-| Measurement type | `P2` (PM2.5) only |
-| Fields | `timestamp`, `sensor_id`, `value_type`, `value`, nested `location` (`lat`, `lon`) |
-| Period | 2024-01-01 to about 2025-02-20 |
-| Readings per sensor | 938 to 1,051 (e.g. `nairobi_001`: 953) |
+| Sensors | 10, from `nairobi_001` to `nairobi_010` |
+| Measurement | PM2.5 (`P2`) |
+| Period | 2024-01-01 to approximately 2025-02-20 |
+| Readings per sensor | 938–1,051 |
+| Combined frequency | Hourly, with no missing gaps in the combined series |
+| Modelling observations | 8,774 after lag creation |
+| Split | 7,019 training and 1,755 testing observations |
 
-## Results (Lesson 3.1)
+The stored timestamps are timezone-naive. The project follows the course convention of treating them as UTC and converting them to `Africa/Nairobi`.
 
-- All 10,000 timestamps are distinct, and every one of the 9,999 gaps between consecutive readings is exactly one hour. The combined series is a perfectly regular hourly series with no missing values.
-- `nairobi_001` alone has 953 readings, with mean PM2.5 of 39.8 (median 39.9, standard deviation 9.8, range 8.0 to 67.4).
-- Stored timestamps are timezone-naive. `wrangle_data()` treats them as UTC and converts them to Africa/Nairobi.
+## Results
 
-## Results (Lesson 3.2)
+### Lag-feature regression
 
-- The modelling dataset contains 8,774 observations from 2024 after creating lag features and removing rows with missing lag values.
-- Data was split chronologically: 7,019 training observations (80%) and 1,755 testing observations (20%). The test period runs from 2024-10-19 21:00 to 2024-12-31 23:00 (Africa/Nairobi).
-- A single-lag linear regression model achieved MAE 7.4591, RMSE 9.2876 and R² 0.0729.
-- A multiple-lag model using the previous 1, 2, 3 and 7 hours achieved MAE 7.3771, RMSE 9.1993 and R² 0.0904.
-- Both regression models outperformed the persistence baseline (MAE 9.2636, RMSE 11.6418, R² -0.4567). The multiple-lag model improved only modestly over the single-lag model.
-- The relatively low R² values indicate that these lag features explain only a limited amount of variation in the test data.
+The multiple-lag regression model achieved the lowest MAE in the main comparison, but the improvement over a single lag was modest and the R² remained low.
 
 | Model | MAE | RMSE | R² |
 |---|---:|---:|---:|
 | Persistence baseline | 9.2636 | 11.6418 | -0.4567 |
-| Linear regression (lag 1) | 7.4591 | 9.2876 | 0.0729 |
-| Multiple-lag regression (lags 1, 2, 3, 7) | 7.3771 | 9.1993 | 0.0904 |
+| Linear regression, lag 1 | 7.4591 | 9.2876 | 0.0729 |
+| Linear regression, lags 1, 2, 3, 7 | 7.3771 | 9.1993 | 0.0904 |
 
-## Results (Lesson 3.3)
+### Autoregressive and ARMA models
 
-- Used ACF and PACF plots to diagnose the autoregressive order. The PACF showed no clean cutoff due to the 10-sensor patchwork, but lag 4 was the first inside the confidence band. We selected **AR(3)** and verified this via AIC/BIC (AR(3) had the lowest BIC).
-- Fitted an AR(3) model using `statsmodels.AutoReg`. The coefficients decayed quickly (`lag_1`: 0.23, `lag_2`: 0.11, `lag_3`: 0.05), confirming weak short-term memory in the series.
-- Walk-forward validation for the first 30 hours of the test set yielded an **MAE of 7.78**, which is **25.33% better** than the persistence baseline (MAE 10.42) on the same 30 steps.
-- The model's predictions appeared "smoothed" and missed sudden spikes. This is expected **mean reversion** behavior for an AR model on noisy sensor data.
-- The PACF showed a significant positive spike at **lag 24** (0.20), indicating a **daily cycle** (likely traffic or temperature inversions). A non-seasonal AR model cannot capture this, so a seasonal model should be investigated in a later lesson.
+ACF/PACF diagnostics supported short-term dependence, but the 10-sensor series behaves like a patchwork of different instruments. On the first 30 test steps, AR(3) achieved an MAE of 7.78 and improved on the persistence baseline MAE of 10.42. The full-test ARMA(2,1) forecast achieved MAE 7.80, a 15.7% improvement over its persistence baseline of 9.25, but its R² was approximately zero.
 
-| Model | MAE (30-step walk-forward) | AIC | BIC |
-|---|---:|---:|---:|
-| Persistence baseline | 10.42 | — | — |
-| AR(1) | 7.92 | 51461.5 | 51482.0 |
-| AR(3) (chosen) | 7.78 | 51320.8 | 51355.1 |
-| AR(5) | 7.82 | 51299.9 | 51347.9 |
-| AR(7) | 7.76 | 51238.5 | 51300.2 |
+The key modelling finding is that the simplest lag-feature regression performed best on MAE. This does not mean ARMA is generally inferior; in this dataset, sensor switching introduces high-frequency noise that limits what the MA term can learn.
 
-## Results (Lesson 3.4 — ARMA)
+## What this demonstrates
 
-- Fit ARMA(2,1) via `statsmodels.ARIMA(order=(2,0,1))`. Coefficients: `ar.L1 = 0.4815`, `ar.L2 = 0.0625`, `ma.L1 = -0.2483` (p = 0.003), `const = 39.56`.
-- The **negative MA coefficient** indicates shock mean-reversion: when the model is surprised by a positive error, the next prediction is pulled down. This matches the negative PACF values at lags 5–19 observed in Lesson 3.3.
-- Multi-step ARMA forecast on the full test set achieved **MAE 7.80**, a **15.7% improvement** over the persistence baseline (MAE 9.25). However, **R² = -0.0008** — the model predicts the long-run mean well but does not track hourly variance.
-- **AIC/BIC ranking**: ARMA(2,1) beats AR(1) and MA(1) as expected. But **AR(3) from Lesson 3.3 has a slightly lower AIC (51,320.82) and BIC (51,355.10) than ARMA(2,1) (51,346.56 / 51,380.85)** — a key finding not anticipated by the course.
-- **Diagnosis**: the MA coefficient captures genuine shock structure (p = 0.003), but the 10-sensor patchwork makes forecast errors mostly sensor-switching noise. A third AR lag captures smooth multi-hour structure more effectively than an MA term captures noisy shock decay.
+This project demonstrates practical foundations for Data Engineering and Analytics Engineering roles:
 
-### Final model comparison (actual project results)
+- Loading operational data into MongoDB and querying it with PyMongo
+- Building a reusable data-wrangling function rather than repeating notebook transformations
+- Preserving time order and timezone information during preparation
+- Creating lag features and validating time-series assumptions
+- Using chronological train/test splits, walk-forward validation, and persistence baselines
+- Comparing models with MAE, RMSE, R², AIC, and BIC
+- Interpreting weak results honestly instead of hiding poor fit
+- Connecting data-engineering decisions to modelling reliability
 
-| Model | Description | MAE | Notes |
-|---|---|---:|---|
-| Baseline (Persistence) | Tomorrow = today | 9.2548 | Floor to beat |
-| Linear regression (L3.2) | Lags 1, 2, 3, 7 | **7.3771** | 🏆 Best overall MAE |
-| AR(3) (L3.3) | Walk-forward, p=3 | 7.7806 | 30-step window only |
-| ARMA(2,1) (L3.4) | Multi-step, p=2, q=1 | 7.7987 | Full test set; R² ≈ 0 |
+## Repository structure
 
-**Interpretation**: On this 10-sensor patchwork, the simplest model (linear regression with lag features) achieved the lowest MAE. This is not because ARMA is a worse tool in general — on data with genuine shock structure, ARMA would be expected to win. It is because the sensor patchwork introduces high-frequency noise that acts like fake shocks, which the MA coefficient cannot distinguish from real atmospheric events.
+```text
+.
+├── data/
+│   ├── raw/                         # source Parquet file; not committed
+│   └── processed/                   # generated data; not committed
+├── notebooks/
+│   ├── 3.1_data_wrangling_mongodb.ipynb
+│   ├── 3.2_linear_regression_lags.ipynb
+│   ├── 3.3_autoregressive_models.ipynb
+│   └── 3.4_arma_models.ipynb
+├── reports/
+│   └── figures/                     # saved charts
+├── src/
+│   ├── load_mongo_data.py           # Parquet to MongoDB loader
+│   └── mongo_wrangle.py             # reusable wrangle_data() function
+├── pyproject.toml
+├── uv.lock
+└── README.md
+```
 
-## Limitations
+## Running the project
 
-- Each hourly value comes from one of the 10 sensors, at a different location, so the combined series is a patchwork of sensors rather than one instrument's record. Differences between sensors appear as noise.
-- The data does not state its timezone; assuming UTC is the course's convention.
-- Only PM2.5 is available in this dataset.
-- The combined series switches between sensors. Lag features can therefore compare readings from different sensors, meaning sensor-to-sensor differences may affect the apparent time relationships.
-- The `lag_7` feature represents seven hours earlier, not seven days, because the observations are hourly.
-- The persistence baseline uses the actual previous observation for each test prediction. This is a rolling one-step-ahead evaluation, not a fixed-origin multi-step forecast.
-- The models use only past PM2.5 readings as predictors. Their modest test R² values suggest that additional relevant variables or a different modelling approach may be needed.
+You need Python, [uv](https://docs.astral.sh/uv/), Docker, and access to the course-provided `nairobi.parquet` file.
 
-## Reproduce
+```bash
+# Install the project environment
+uv sync
 
-    uv sync
-    docker run -d --name nairobi-mongo -p 27017:27017 -v nairobi-mongo-data:/data/db mongo:7
-    # place nairobi.parquet (from the course materials) in data/raw/
-    uv run python src/load_mongo_data.py
-    # open notebooks/3.1_data_wrangling_mongodb.ipynb (kernel: nairobi-env)
-    # then open notebooks/3.2_linear_regression_lags.ipynb
-    # then open notebooks/3.3_autoregressive_models.ipynb
-    # then open notebooks/3.4_arma_models.ipynb
+# Start MongoDB 7 locally
+docker run -d --name nairobi-mongo -p 27017:27017 \\
+  -v nairobi-mongo-data:/data/db mongo:7
 
-The MongoDB host defaults to `localhost`; set the `MONGO_HOST` environment variable to use another server. Tested with Python 3.14.2, pandas 3.1.0, pymongo 4.19.0, scikit-learn 1.9.1, statsmodels 0.15.0 and MongoDB 7.
+# Place nairobi.parquet in data/raw/, then load it
+uv run python src/load_mongo_data.py
+```
 
-## Notebooks
+Open the notebooks in order using the project environment as the Jupyter kernel:
 
-| Notebook | Topic |
-|---|---|
-| `notebooks/3.1_data_wrangling_mongodb.ipynb` | Connect, explore, import and wrangle PM2.5 data from MongoDB |
-| `notebooks/3.2_linear_regression_lags.ipynb` | Create lag features, train linear regression models and evaluate time series predictions |
-| `notebooks/3.3_autoregressive_models.ipynb` | Use ACF/PACF to select AR order, fit AR models, and run walk-forward validation |
-| `notebooks/3.4_arma_models.ipynb` | Fit ARMA(2,1), compare against AR/MA baselines via AIC/BIC |
+1. `notebooks/3.1_data_wrangling_mongodb.ipynb`
+2. `notebooks/3.2_linear_regression_lags.ipynb`
+3. `notebooks/3.3_autoregressive_models.ipynb`
+4. `notebooks/3.4_arma_models.ipynb`
 
-## Layout
+The MongoDB host defaults to `localhost`. Set the `MONGO_HOST` environment variable when using another host.
 
-    data/raw/            raw parquet file (git-ignored)
-    data/processed/      processed data (git-ignored)
-    notebooks/           one notebook per lesson
-    src/load_mongo_data.py   loads the parquet file into MongoDB
-    src/mongo_wrangle.py     wrangle_data(): MongoDB to clean DataFrame
-    reports/figures/     saved charts
-    pyproject.toml, uv.lock  environment (uv)
+## Limitations and next steps
+
+The combined series switches between 10 sensors at different locations, so consecutive observations may come from different instruments. This creates sensor-to-sensor variation that can look like noise or false shocks. The data also does not state its timezone, so the UTC assumption is a project convention.
+
+The models use only past PM2.5 readings. The low test R² values suggest that weather, traffic, location, seasonality, and sensor identity could add useful explanatory power. Future improvements could include sensor-specific modelling, explicit daily seasonality, richer exogenous features, automated data-quality checks, experiment tracking, and scheduled pipeline execution.
